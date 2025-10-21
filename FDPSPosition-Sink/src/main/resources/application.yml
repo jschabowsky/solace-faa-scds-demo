@@ -1,0 +1,47 @@
+spring:
+  config:
+    import:
+      - aws-secretsmanager:solace/scds/broker
+      - aws-secretsmanager:faa/documentdb/password
+  ssl:
+    bundle:
+      pem:
+        mongo-ssl:
+          truststore:
+            certificate: classpath:global-bundle.pem
+  data:
+    mongodb:
+      database: FAAData
+      uri: ${spring.data.mongodb.uri}
+  cloud:
+    aws:
+      credentials:
+        profile:
+          name: iam
+    function:
+      definition: sink
+    stream:
+      bindings:
+        sink-in-0:
+          destination: 'FDPS/position/>'
+          contentType: application/json
+          #The presence of "group" tells the binder to follow the "consumer group" pattern
+          group: SINK
+          consumer:
+            #Concurrency can be used with a consumer group (non-exclusive queue) to process events in multiple threads
+            concurrency: 5
+      binders:
+        local-solace:
+          type: solace
+          environment:
+            solace:
+              java:
+                  host: ${spring.cloud.stream.binders.local-solace.environment.solace.java.host}
+                  msgVpn: scds
+                  clientUsername: ${spring.cloud.stream.binders.local-solace.environment.solace.java.username}
+                  clientPassword: ${spring.cloud.stream.binders.local-solace.environment.solace.java.password}
+                  connectRetries: 3
+                  connectRetriesPerHost: 0
+                  reconnectRetries: 3
+server:
+  port: 8093
