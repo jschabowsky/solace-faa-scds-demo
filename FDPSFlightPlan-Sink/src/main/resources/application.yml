@@ -12,7 +12,7 @@ spring:
             certificate: classpath:global-bundle.pem
   data:
     mongodb:
-      uri: $spring.data.mongodb.uri}}
+      uri: ${spring.data.mongodb.uri}
       database: FAAData
   cloud:
     function:
@@ -20,7 +20,7 @@ spring:
     stream:
       bindings:
         sink-in-0:
-          destination: STDDS/position/>
+          destination: FDPS/flightPlan/>
           contentType: application/json
           #The presence of "group" tells the binder to follow the "consumer group" pattern
           group: ${aws_account_id}
