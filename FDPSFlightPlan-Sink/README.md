@@ -38,7 +38,7 @@ public Consumer<String> sink(){
 }
 ```
 The data for FDPSFlightPlan is in the JSON format and after written to the database looks like:
-```json
+```json lines
 {
   _id: ObjectId('691f72f945221179c34a889b'),
   message: {

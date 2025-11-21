@@ -39,7 +39,7 @@ public Consumer<String> sink() {
 ```
 
 The data for STDDSPosition is in the JSON format and after written to the database looks like:
-```json
+```json lines
 {
   _id: ObjectId('691f8906c4c0ac46c59d719f'),
   SurfaceMovementEventMessage: {
