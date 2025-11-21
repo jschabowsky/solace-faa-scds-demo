@@ -39,7 +39,7 @@ public Consumer<String> sink(){
 ```
 
 The data for FDPSPosition is in the JSON format and after written to the database looks like: 
-```json
+```json lines
 {
   _id: ObjectId('691f76b2b2b5493085a3ec1e'),
   message: {
