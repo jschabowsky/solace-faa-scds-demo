@@ -3,6 +3,7 @@ spring:
     import:
       - aws-secretsmanager:solace/scds/broker
       - aws-secretsmanager:faa/documentdb/password
+      - aws-secretsmanager:aws/accountid
   ssl:
     bundle:
       pem:
@@ -26,7 +27,7 @@ spring:
           destination: 'FDPS/position/>'
           contentType: application/json
           #The presence of "group" tells the binder to follow the "consumer group" pattern
-          group: SINK
+          group: ${aws_account_id}
           consumer:
             #Concurrency can be used with a consumer group (non-exclusive queue) to process events in multiple threads
             concurrency: 5

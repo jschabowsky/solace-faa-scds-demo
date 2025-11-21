@@ -35,7 +35,6 @@ import com.solacesystems.jcsmp.Queue;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.bson.Document;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -45,12 +44,12 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.index.Index;
 import org.springframework.data.mongodb.core.index.IndexOperations;
+import org.springframework.data.domain.Sort.Direction;
 
 @SpringBootApplication
-
-public class FDPSPosition {
+public class FDPSFlightPlan {
 	private final MongoTemplate mongoTemplate;
-	String collectionName = "FDPSPosition";
+	String collectionName = "FDPSFlightPlan";
 
 	@Value("${spring.cloud.stream.bindings.sink-in-0.destination}")
 	private String destination;
@@ -70,10 +69,10 @@ public class FDPSPosition {
 	@Value( "${spring.cloud.stream.binders.local-solace.environment.solace.java.clientPassword}")
 	private String password;
 
-	public FDPSPosition(MongoTemplate mongoTemplate) {
+	public FDPSFlightPlan(MongoTemplate mongoTemplate) {
 
 		this.mongoTemplate = mongoTemplate;
-    }
+	}
 
 	@PostConstruct
 	public void init() {
@@ -90,7 +89,7 @@ public class FDPSPosition {
 		indexOps.ensureIndex(
 				new Index()
 						.on("time", Sort.Direction.ASC)
-						.expire(28800)   // time-to-live in seconds
+						.expire(86400)   // time-to-live in seconds
 						.named("time_1")
 		);
 		indexOps.ensureIndex(new Index()
@@ -112,6 +111,8 @@ public class FDPSPosition {
 				.on("time", Sort.Direction.DESC).named("idx_departure_time")
 		);
 	}
+
+
 
 	@PreDestroy
 	public void cleanup() {
@@ -139,8 +140,9 @@ public class FDPSPosition {
 		}
 	}
 
+
 	public static void main(String[] args) {
-		SpringApplication.run(FDPSPosition.class, args);
+		SpringApplication.run(FDPSFlightPlan.class, args);
 	}
 
 	/*
@@ -155,18 +157,18 @@ public class FDPSPosition {
 			JsonNode jsonNode = null;
 			ObjectWriter writer = objectMapper.writerWithDefaultPrettyPrinter();
 			Document doc = null;
-            try {
+			try {
 				jsonNode = objectMapper.readTree(message);
 				if (jsonNode instanceof ObjectNode objectNode) {
-                    Instant time = Instant.parse(objectNode.get("message").get("flight").get("timestamp").textValue());
+					Instant time = Instant.parse(objectNode.get("message").get("flight").get("timestamp").textValue());
 					doc = Document.parse(writer.writeValueAsString(objectNode));
 					doc.append("time", Date.from(time));
 					mongoTemplate.save(doc, collectionName);
 					System.out.println("Wrote Message!");
 				}
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(e);
-            }
+			} catch (JsonProcessingException e) {
+				throw new RuntimeException(e);
+			}
 		};
 	}
 }
