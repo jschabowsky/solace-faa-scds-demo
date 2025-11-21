@@ -1,6 +1,6 @@
-# cloud-stream-sink - Using Spring Cloud Stream Consumer
+# FDPSPosition-Sink
 
-The `TemperatureSink` application is a Spring Boot application that leverages Spring Cloud Stream to consume sensor readings (objects of type `SensorReading`) from a message broker.
+The `FDPSPosition-Sink` application is a Spring Boot application that leverages Spring Cloud Stream to consume events about airbone aircraft from the FAA from a message broker.
 
 ## Requirements
 
@@ -10,72 +10,128 @@ To run this sample, you will need to have installed:
 
 ## Code Tour
 
-In the `TemperatureSink` application, review the source code which consumes sensor readings published on the broker and simply prints the message content on the console.
+In the `FDPSPosition-Sink` application, review the source code which consumes flight plans published on the broker and performs the following steps:
+- Gets the actual timestamp thats nested deep in the document, and adds it to a `time` attribute at the document root. This attribute is used by the database in order to expire documents after a certain amount of time.
+- Uses the injected mongoTemplate to save the document into the defined collection
 
 ```java
 @Bean
-public Consumer<SensorReading> sink(){
-  return System.out::println;
+public Consumer<String> sink(){
+    return message -> {
+        ObjectMapper objectMapper = new ObjectMapper();
+        JsonNode jsonNode = null;
+        ObjectWriter writer = objectMapper.writerWithDefaultPrettyPrinter();
+        Document doc = null;
+        try {
+            jsonNode = objectMapper.readTree(message);
+            if (jsonNode instanceof ObjectNode objectNode) {
+                Instant time = Instant.parse(objectNode.get("message").get("flight").get("timestamp").textValue());
+                doc = Document.parse(writer.writeValueAsString(objectNode));
+                doc.append("time", Date.from(time));
+                mongoTemplate.save(doc, collectionName);
+                System.out.println("Wrote Message!");
+            }
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+    };
+}
+```
+
+The data for FDPSPosition is in the JSON format and after written to the database looks like: 
+```json
+{
+  _id: ObjectId('691f76b2b2b5493085a3ec1e'),
+  message: {
+    flight: {
+      centre: 'ZNY',
+      source: 'TH',
+      system: 'SLC',
+      timestamp: '2025-11-20T20:14:05.760Z',
+      arrival: {
+        arrivalPoint: 'KPHL',
+        runwayPositionAndTime: { runwayTime: { estimated: { time: '2025-11-20T20:42:00Z' } } }
+      },
+      controllingUnit: { sectorIdentifier: '50', unitIdentifier: 'ZNY' },
+      departure: {
+        departurePoint: 'KART',
+        runwayPositionAndTime: { runwayTime: { actual: { time: '2025-11-20T20:01:00Z' } } }
+      },
+      enRoute: {
+        position: {
+          positionTime: '2025-11-20T20:14:03Z',
+          reportSource: 'SURVEILLANCE',
+          targetPositionTime: '2025-11-20T20:14:03Z',
+          actualSpeed: { surveillance: { uom: 'KNOTS', text: '427.0' } },
+          altitude: { uom: 'FEET', text: '19400.0' },
+          position: {
+            location: {
+              srsName: 'urn:ogc:def:crs:EPSG::4326',
+              pos: '42.789444 -76.178611'
+            }
+          },
+          targetAltitude: { uom: 'FEET', text: '19400.0' },
+          targetPosition: {
+            srsName: 'urn:ogc:def:crs:EPSG::4326',
+            pos: '42.788889 -76.178611'
+          },
+          trackVelocity: {
+            x: { uom: 'KNOTS', text: '18.0' },
+            y: { uom: 'KNOTS', text: '-426.0' }
+          }
+        }
+      },
+      flightIdentification: {
+        aircraftIdentification: 'PDT5974',
+        computerId: '274',
+        siteSpecificPlanId: '345'
+      },
+      flightStatus: { fdpsFlightStatus: 'ACTIVE' },
+      gufi: {
+        codeSpace: 'urn:uuid',
+        text: 'fa67d5b0-a907-43e9-a11e-1a025aecba91'
+      },
+      operator: { operatingOrganization: { organization: { name: 'PDT' } } },
+      supplementalData: {
+        additionalFlightInformation: {
+          nameValue: [
+            { name: 'MSG_SEQ_NO', value: '23396811' },
+            {
+              name: 'FDPS_GUFI',
+              value: 'us.fdps.2025-11-20T18:34:04Z.000/01/500'
+            },
+            { name: 'FLIGHT_PLAN_SEQ_NO', value: '4' },
+            { name: 'SOURCE_TIME_AND_SEQ', value: '2014056733' },
+            { name: 'SOURCE_TIME', value: '20_14_05' },
+            { name: 'ADSB_02M_52B', value: '-ACC954' }
+          ]
+        }
+      },
+      assignedAltitude: { simple: { uom: 'FEET', text: '19000.0' } },
+      flightPlan: { identifier: 'KB66844500' }
+    }
+  },
+  time: ISODate('2025-11-20T20:14:05.760Z')
 }
 ```
 
 ## Running the application
 
-Make sure to update the Solace Broker connection details with the appropriate host, msgVpn, client username, and password in `application.yml`.
+Make sure to update:
+- Solace Broker connection details with the appropriate host, msgVpn, client username, and password in `application.yml`.
+- MongoDB/DocumentDB connection details
+
+The application is expected to be deployed within AWS, in our case Elastic Beanstalk and so the following secrets must be created in AWS Secrets Manager:
+```yaml
+      - aws-secretsmanager:solace/scds/broker
+      - aws-secretsmanager:faa/documentdb/password
+      - aws-secretsmanager:aws/accountid
+```
+The account id is specifically used in order to inject a unique group for each user, in a multiuser environment.
 
 ```sh
-cd cloud-stream-sink
+cd FDPSPosition-Sink
 mvn clean spring-boot:run
-```
-
-This will start the Spring Boot application and create a queue with subscription to topic ```sensor/temperature/>``` and waits for messages to arrive.
-
-```
-2025-01-02T14:19:23.656+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.i.JCSMPInboundChannelAdapter : Creating consumer 1 of 5 for inbound adapter dbca4f5b-b176-4c67-a052-5d92ff2492d0
-2025-01-02T14:19:23.692+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.i.JCSMPInboundChannelAdapter : Creating consumer 2 of 5 for inbound adapter dbca4f5b-b176-4c67-a052-5d92ff2492d0
-2025-01-02T14:19:23.693+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.i.JCSMPInboundChannelAdapter : Creating consumer 3 of 5 for inbound adapter dbca4f5b-b176-4c67-a052-5d92ff2492d0
-2025-01-02T14:19:23.694+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.i.JCSMPInboundChannelAdapter : Creating consumer 4 of 5 for inbound adapter dbca4f5b-b176-4c67-a052-5d92ff2492d0
-2025-01-02T14:19:23.694+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.i.JCSMPInboundChannelAdapter : Creating consumer 5 of 5 for inbound adapter dbca4f5b-b176-4c67-a052-5d92ff2492d0
-2025-01-02T14:19:23.696+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.util.FlowReceiverContainer   : Binding flow receiver container 5d027806-8840-42c7-afb2-ce0c6d086e96
-2025-01-02T14:19:23.696+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.util.FlowReceiverContainer   : Flow receiver container 5d027806-8840-42c7-afb2-ce0c6d086e96 started in state 'Running'
-2025-01-02T14:19:23.703+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.util.FlowReceiverContainer   : Binding flow receiver container 0bc3a187-83f9-4208-8186-9d27b66cd46d
-2025-01-02T14:19:23.703+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.util.FlowReceiverContainer   : Flow receiver container 0bc3a187-83f9-4208-8186-9d27b66cd46d started in state 'Running'
-2025-01-02T14:19:23.706+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.util.FlowReceiverContainer   : Binding flow receiver container 136f5825-992a-4b8b-8085-383910d9d609
-2025-01-02T14:19:23.706+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.util.FlowReceiverContainer   : Flow receiver container 136f5825-992a-4b8b-8085-383910d9d609 started in state 'Running'
-2025-01-02T14:19:23.709+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.util.FlowReceiverContainer   : Binding flow receiver container 98da8fd5-b438-479f-8962-f30563541f99
-2025-01-02T14:19:23.709+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.util.FlowReceiverContainer   : Flow receiver container 98da8fd5-b438-479f-8962-f30563541f99 started in state 'Running'
-2025-01-02T14:19:23.712+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.util.FlowReceiverContainer   : Binding flow receiver container 825cd09e-7dd3-4b72-b896-634e56a38b90
-2025-01-02T14:19:23.712+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.util.FlowReceiverContainer   : Flow receiver container 825cd09e-7dd3-4b72-b896-634e56a38b90 started in state 'Running'
-2025-01-02T14:19:23.720+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.p.SolaceQueueProvisioner     : Subscribing queue scst/wk/SINK/plain/TEMPS.Q to topic TEMPS.Q
-2025-01-02T14:19:23.724+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.p.SolaceQueueProvisioner     : Subscribing queue scst/wk/SINK/plain/TEMPS.Q to topic sensor/temperature/>
-2025-01-02T14:19:23.726+05:30  INFO 16436 --- [  restartedMain] c.s.s.c.s.b.i.JCSMPInboundChannelAdapter : started com.solace.spring.cloud.stream.binder.inbound.JCSMPInboundChannelAdapter@deb5bccf
-2025-01-02T14:19:23.745+05:30  INFO 16436 --- [  restartedMain] c.s.samples.spring.scs.TemperatureSink   : Started TemperatureSink in 3.961 seconds (process running for 4.542)
-```
-
-In another the terminal, start the ```cloud-stream-source``` application.
-
-```sh
-cd cloud-stream-source
-mvn clean spring-boot:run
-```
-
-This will start the Spring Boot application publish messages on topic ```sensor/temperature/fahrenheit```.
-
-
-```
-2025-01-02T14:22:02.241+05:30  INFO 16675 --- [   scheduling-1] c.s.s.spring.scs.FahrenheitTempSource    : Emitting SensorReading [ 2025-01-02 14:22:02.241 1ea53e10-cf0d-428a-839a-eb98fa4eb8a4 6.8 FAHRENHEIT ]
-2025-01-02T14:22:07.245+05:30  INFO 16675 --- [   scheduling-1] c.s.s.spring.scs.FahrenheitTempSource    : Emitting SensorReading [ 2025-01-02 14:22:07.245 1ea53e10-cf0d-428a-839a-eb98fa4eb8a4 28.6 FAHRENHEIT ]
-2025-01-02T14:22:12.248+05:30  INFO 16675 --- [   scheduling-1] c.s.s.spring.scs.FahrenheitTempSource    : Emitting SensorReading [ 2025-01-02 14:22:12.248 1ea53e10-cf0d-428a-839a-eb98fa4eb8a4 15.3 FAHRENHEIT ]
-2025-01-02T14:22:17.252+05:30  INFO 16675 --- [   scheduling-1] c.s.s.spring.scs.FahrenheitTempSource    : Emitting SensorReading [ 2025-01-02 14:22:17.251 1ea53e10-cf0d-428a-839a-eb98fa4eb8a4 38.6 FAHRENHEIT ]
-```
-
-On the terminal where the cloud-stream-sink application is running, you can see the arrival of the published messages.
-
-```
-SensorReading [ 2025-01-02 14:22:02.241 1ea53e10-cf0d-428a-839a-eb98fa4eb8a4 6.8 FAHRENHEIT ]
-SensorReading [ 2025-01-02 14:22:07.245 1ea53e10-cf0d-428a-839a-eb98fa4eb8a4 28.6 FAHRENHEIT ]
-SensorReading [ 2025-01-02 14:22:12.248 1ea53e10-cf0d-428a-839a-eb98fa4eb8a4 15.3 FAHRENHEIT ]
-SensorReading [ 2025-01-02 14:22:17.251 1ea53e10-cf0d-428a-839a-eb98fa4eb8a4 38.6 FAHRENHEIT ]
 ```
 
 🚀 Leverage the power of Spring Cloud Stream to build robust and scalable data production pipelines with ease! 🚀
